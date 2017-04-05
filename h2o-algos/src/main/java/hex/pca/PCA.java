@@ -399,7 +399,10 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
           // Build an SVD model
           // Hack: we have to resort to unsafe type casts because _job is of Job<PCAModel> type, whereas a GLRM
           // model requires a Job<GLRMModel> _job. If anyone knows how to avoid this hack, please fix it!
-          GLRMModel glrm = new GLRM(parms, (Job)_job).trainModelNested(tranRebalanced);
+          GLRM glrmP = new GLRM(parms, (Job)_job);
+          glrmP.setWideDataset(_wideDataset);  // force to treat dataset as wide even though it is not.
+          GLRMModel glrm = glrmP.trainModelNested(tranRebalanced);
+
           if (stop_requested()) {
             return;
           }

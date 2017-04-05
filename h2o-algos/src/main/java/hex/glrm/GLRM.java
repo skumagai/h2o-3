@@ -665,7 +665,8 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
     public void computeImpl() {
       GLRMModel model = null;
       DataInfo dinfo = null, xinfo = null, tinfo = null, tempinfo = null;
-      Frame fr = null;
+      Frame fr = null;  // frame to store T(A)
+      Frame xwF = null; // frame to store X, W matrices for wide datasets
       boolean overwriteX = false;
       int colCount = _ncolA;
 
@@ -743,16 +744,6 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
         fr = dinfo._adaptedFrame;
         int weightId = dinfo._weights ? dinfo.weightChunkId() : -1;
 
-        if (_wideDataset) {   // store [T(A), Xw, Ww]
-          colCount = (int) _train.numRows();
-          Vec tempVec = Vec.makeZero(_ncolA);
-          fr = generateFrameOfZeros(_ncolA, colCount);
-          new DMatrix.TransposeTsk(fr).doAll(dinfo._adaptedFrame.subframe(0, _ncolA));
-
-          for (int i = 0; i < _ncolX; i++) fr.add("xcol_" + i, tempVec.makeZero());
-          for (int i = 0; i < _ncolX; i++) fr.add("wcol_" + i, tempVec.makeZero());
-        }
-
         // Use closed form solution for X if quadratic loss and regularization
         _job.update(1, "Initializing X and Y matrices");   // One unit of work
 
@@ -767,12 +758,17 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
         if (!(_parms._init == GlrmInitialization.User && _parms._user_x != null) && hasClosedForm(na_cnt))
           initialXClosedForm(dinfo, yt, model._output._normSub, model._output._normMul);
 
-        if (_wideDataset) { // 1. make T(X) as double[][] array, 2. copy T(Y) into fr as X
-          Frame tempY = new water.util.ArrayUtils().frame(transpose(yinit)); // add X to frame
+        if (_wideDataset) { // 1. create fr as transpose(A). 2. make T(X) as double[][] array 3. build frame for x
+          colCount = (int) _train.numRows();
+          fr = generateFrameOfZeros(_ncolA, colCount);
+          xwF = new water.util.ArrayUtils().frame(transpose(yinit));
+          xwF.add(generateFrameOfZeros((int) xwF.numRows(), _parms._k));
+
+          new DMatrix.TransposeTsk(fr).doAll(dinfo._adaptedFrame.subframe(0, _ncolA));
+
           yinit = new double[_parms._k][colCount];    // store the X matrix from adaptedFrame
           for (int index = colCount; index < colCount+_ncolX; index++) {
             int trueIndex = index-colCount;
-            fr.replace(index, tempY.vec(trueIndex)); // copy X into frame
             yinit[trueIndex] = new FrameUtils.Vec2ArryTsk(colCount).doAll(dinfo._adaptedFrame.vec(trueIndex+_ncolA)).res;
           }
           yt = new Archetypes(transpose(yinit), true, tinfo._catOffsets, numLevels);
@@ -1685,7 +1681,10 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
     @SuppressWarnings("ConstantConditions")  // The method is too complex
     @Override public void map(Chunk[] cs) {
       assert (_ncolA + 2*_ncolX) == cs.length;
-      Chunk chkweight = _weightId >= 0 ? cs[_weightId]:new C0DChunk(1,cs[0]._len);
+
+      // ToDo: Ask Tomas about how weights are stored for dataset
+      Chunk chkweight = _wideDataset ? new C0DChunk(1,cs.length):
+              (_weightId >= 0 ? cs[_weightId]:new C0DChunk(1,cs[0]._len));  // weight is per data sample
       _loss = _xold_reg = 0;
       double[] xrow = null;
       double[] xy = null;
@@ -1696,24 +1695,30 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       if (_regX)  // allocation memory only if necessary
          xrow = new double[_ncolX];
 
-      for (int row = 0; row < cs[0]._len; row++) {
-        // Additional user-specified weight on loss for this row
-        double cweight = chkweight.atd(row);  // weight is per row for normal dataset
-        assert !Double.isNaN(cweight) : "User-specified weight cannot be NaN";
-        // Categorical columns
-        for (int j = 0; j < _ncats; j++) {    // contribution from categoricals
-          _loss += lossDueToCategorical(cs, j, row, xy);
-        }
+      if (_wideDataset) { // calculate loss function for wide dataset.  Note, early rows are categoricals
+        int rowStart = (int) cs[0].start(); // figure out which row of dataset we are dealing with
 
-        // Numeric columns
-        for (int j = _ncats; j < _ncolA; j++) {
-          _loss += lossDueToNumeric(cs, j, row, _ncats);
-        }
-        _loss *= cweight;
 
-        // Calculate regularization term for old X if requested
-        if (_regX) {
-          _xold_reg += regularizationTermOldX(cs, row, xrow, _ncolA, _ncolA+_ncolX);
+      } else {  // calculate loss for normal data sets
+        for (int row = 0; row < cs[0]._len; row++) {
+          // Additional user-specified weight on loss for this row
+          double cweight = chkweight.atd(row);  // weight is per row for normal dataset
+          assert !Double.isNaN(cweight) : "User-specified weight cannot be NaN";
+          // Categorical columns
+          for (int j = 0; j < _ncats; j++) {    // contribution from categoricals
+            _loss += lossDueToCategorical(cs, j, row, xy, 0);
+          }
+
+          // Numeric columns
+          for (int j = _ncats; j < _ncolA; j++) {
+            _loss += lossDueToNumeric(cs, j, row, _ncats, 0);
+          }
+          _loss *= cweight;
+
+          // Calculate regularization term for old X if requested
+          if (_regX) {
+            _xold_reg += regularizationTermOldX(cs, row, xrow, _ncolA, _ncolA + _ncolX);
+          }
         }
       }
     }
@@ -1728,7 +1733,7 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       return _parms._regularization_x.regularize(xrow);
     }
 
-    private double lossDueToNumeric(Chunk[] cs, int j, int row, int offsetA) {
+    private double lossDueToNumeric(Chunk[] cs, int j, int row, int offsetA, int rowStart) {
       double a = cs[j].atd(row);
       if (Double.isNaN(a)) return 0.0;   // Skip missing observations in row
 
@@ -1741,7 +1746,7 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       return _lossFunc[j].loss(txy, (a - _normSub[js]) * _normMul[js]);
     }
 
-    private double lossDueToCategorical(Chunk[] cs, int colInd, int row, double[] xy) {
+    private double lossDueToCategorical(Chunk[] cs, int colInd, int row, double[] xy, int rowStart) {
       double a = cs[colInd].atd(row);
       if (Double.isNaN(a)) return 0.0;
       int catColJLevel = _yt._numLevels[colInd];

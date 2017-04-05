@@ -99,13 +99,13 @@ public class PCAWideDataSetsTests extends TestUtil {
 */
 		@Test
 		public void testWideDataSetGLRM() throws InterruptedException, ExecutionException {
-				ActualPCATests.testWideDataSets(PCAModel.PCAParameters.Method.GLRM, _TOLERANCE, _smallDataset,
-												false, true, _transformTypes[_rand.nextInt(_transformTypes.length)]);  // case 1
 /*				ActualPCATests.testWideDataSets(PCAModel.PCAParameters.Method.GLRM, _TOLERANCE, _smallDataset,
-												true, true, _transformTypes[_rand.nextInt(_transformTypes.length)]);   // case 2
+												false, true, _transformTypes[_rand.nextInt(_transformTypes.length)]);  // case 1
+				ActualPCATests.testWideDataSets(PCAModel.PCAParameters.Method.GLRM, _TOLERANCE, _smallDataset,
+												true, true, _transformTypes[_rand.nextInt(_transformTypes.length)]);   // case 2 */
 				ActualPCATests.testWideDataSets(PCAModel.PCAParameters.Method.GLRM, _TOLERANCE, _smallDataset,
 												false, false, _transformTypes[_rand.nextInt(_transformTypes.length)]);  // case 3
-				ActualPCATests.testWideDataSets(PCAModel.PCAParameters.Method.GLRM, _TOLERANCE, _smallDataset,
+/*				ActualPCATests.testWideDataSets(PCAModel.PCAParameters.Method.GLRM, _TOLERANCE, _smallDataset,
 												true, false, _transformTypes[_rand.nextInt(_transformTypes.length)]);  // case 4
 				ActualPCATests.testWideDataSets(PCAModel.PCAParameters.Method.GLRM, _TOLERANCE, _prostateDataset,
 												false, false, _transformTypes[_rand.nextInt(_transformTypes.length)]);  // case 5
@@ -157,7 +157,7 @@ class ActualPCATests {
 
 						parms._pca_method = pcaMethod;
 						PCA pcaParmsW = new PCA(parms);
-	//					pcaParmsW.setWideDataset(true);  // force to treat dataset as wide even though it is not.
+//						pcaParmsW.setWideDataset(true);  // force to treat dataset as wide even though it is not.
 						modelW = pcaParmsW.trainModel().get();
 						scoreW = modelW.score(train);
 						Scope.track(scoreW);

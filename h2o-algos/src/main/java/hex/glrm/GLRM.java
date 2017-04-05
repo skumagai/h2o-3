@@ -444,7 +444,14 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
         parms._save_v_frame = false;
 
         SVDModel svd = ModelCacheManager.get(parms);
-        if (svd == null) svd = new SVD(parms, _job, true, model).trainModelNested(_rebalancedTrain);
+
+        if (svd == null) {
+          SVD svdP = new SVD(parms, _job, true, model);
+          svdP.setWideDataset(_wideDataset);  // force to treat dataset as wide even though it is not.
+
+          // Build an SVD model
+          svd = svdP.trainModelNested(_rebalancedTrain);
+        }
         model._output._init_key = svd._key;
 
         // Ensure SVD centers align with adapted training frame cols
@@ -781,7 +788,7 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
         boolean regX = _parms._regularization_x != GlrmRegularizer.None && _parms._gamma_x != 0;
 
         ObjCalc objtsk = new ObjCalc(_parms, yt, colCount, _ncolX, tinfo._cats, model._output._normSub,
-                                     model._output._normMul, model._output._lossFunc, weightId, regX, _wideDataset);
+                                     model._output._normMul, model._output._lossFunc, weightId, regX, _wideDataset, xwF);
         objtsk.doAll(fr);
 
         model._output._objective = objtsk._loss + _parms._gamma_x * objtsk._xold_reg + _parms._gamma_y * yreg;
@@ -821,7 +828,7 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
 
           // 3) Compute average change in objective function
           objtsk = new ObjCalc(_parms, ytnew, _ncolA, _ncolX, tinfo._cats, model._output._normSub,
-                  model._output._normMul, model._output._lossFunc, weightId, _wideDataset);
+                  model._output._normMul, model._output._lossFunc, weightId, _wideDataset, xwF);
           objtsk.doAll(dinfo._adaptedFrame);
           double obj_new = objtsk._loss + _parms._gamma_x * xtsk._xreg + _parms._gamma_y * yreg;
           model._output._avg_change_obj = (model._output._objective - obj_new) / nobs;
@@ -1647,17 +1654,18 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
     final int _weightId;
     final boolean _regX;      // Should I calculate regularization of (old) X matrix?
     boolean _wideDataset = false;
+    Frame _xVecs;        // store X and X new
 
     // Output
     double _loss;       // Loss evaluated on A - XY using new X (and current Y)
     double _xold_reg;   // Regularization evaluated on old X
 
     ObjCalc(GLRMParameters parms, Archetypes yt, int ncolA, int ncolX, int ncats, double[] normSub, double[] normMul,
-            GlrmLoss[] lossFunc, int weightId, boolean widedataset) {
-      this(parms, yt, ncolA, ncolX, ncats, normSub, normMul, lossFunc, weightId, false, widedataset);
+            GlrmLoss[] lossFunc, int weightId, boolean widedataset, Frame xvec) {
+      this(parms, yt, ncolA, ncolX, ncats, normSub, normMul, lossFunc, weightId, false, widedataset, xvec);
     }
     ObjCalc(GLRMParameters parms, Archetypes yt, int ncolA, int ncolX, int ncats, double[] normSub, double[] normMul,
-            GlrmLoss[] lossFunc, int weightId, boolean regX, boolean widedataset) {
+            GlrmLoss[] lossFunc, int weightId, boolean regX, boolean widedataset, Frame xvecs) {
       assert yt != null && yt.rank() == ncolX;
       assert ncats <= ncolA;
       _parms = parms;
@@ -1672,6 +1680,7 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       _normSub = normSub;
       _normMul = normMul;
       _wideDataset = widedataset;
+      _xVecs = xvecs;
     }
 
     private Chunk chk_xnew(Chunk[] chks, int c) {
@@ -1680,7 +1689,9 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
 
     @SuppressWarnings("ConstantConditions")  // The method is too complex
     @Override public void map(Chunk[] cs) {
-      assert (_ncolA + 2*_ncolX) == cs.length;
+      if (!_wideDataset) {
+        assert (_ncolA + 2 * _ncolX) == cs.length;
+      }
 
       // ToDo: Ask Tomas about how weights are stored for dataset
       Chunk chkweight = _wideDataset ? new C0DChunk(1,cs.length):

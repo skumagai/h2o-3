@@ -29,6 +29,7 @@ from .estimators.kmeans import H2OKMeansEstimator
 from .estimators.naive_bayes import H2ONaiveBayesEstimator
 from .estimators.random_forest import H2ORandomForestEstimator
 from .estimators.stackedensemble import H2OStackedEnsembleEstimator
+from .estimators.klime import H2OKlimeEstimator
 from .expr import ExprNode
 from .frame import H2OFrame
 from .grid.grid_search import H2OGridSearch
@@ -701,6 +702,7 @@ def get_model(model_id):
         else:
             m = H2ODeepLearningEstimator()
     elif algo == "stackedensemble": m = H2OStackedEnsembleEstimator()
+    elif algo == "klime":        m = H2OKlimeEstimator()
     else:
         raise ValueError("Unknown algo type: " + algo)
     m._resolve_model(model_id, model_json)

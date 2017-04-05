@@ -1294,6 +1294,11 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
    *  loaded into the re-used temp array, which is also returned.  */
   protected abstract double[] score0(double data[/*ncols*/], double preds[/*nclasses+1*/]);
 
+  // FIXME
+  public final double[] score1(double data[/*ncols*/], double preds[/*nclasses+1*/]) {
+    return score0(data, preds);
+  }
+
   /**Override scoring logic for models that handle weight/offset**/
   protected double[] score0(double data[/*ncols*/], double preds[/*nclasses+1*/], double weight, double offset) {
     assert (weight == 1 && offset == 0) : "Override this method for non-trivial weight/offset!";

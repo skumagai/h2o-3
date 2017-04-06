@@ -13,7 +13,7 @@ public class FailedNodeWatchdogExtension extends AbstractH2OExtension {
     private boolean watchDogStopWithout = false;
     @Override
     public String getExtensionName() {
-        return "Failed node watchdog";
+        return "Watchdog";
     }
 
     @Override

@@ -183,12 +183,18 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
       double dfcorr = 1.0 / Math.sqrt(_train.numRows() - 1.0);
       pca._output._std_deviation = new double[_parms._k];
       pca._output._eigenvectors_raw = glrm._output._eigenvectors_raw;
-      for(int i = 0; i < glrm._output._singular_vals.length; i++) {
-        pca._output._std_deviation[i] = dfcorr * glrm._output._singular_vals[i];
-      }
       pca._output._nobs = _train.numRows();
-      // Since gram = X'X/n, but variance requires n-1 in denominator
-      pca._output._total_variance = gram.diagSum()*pca._output._nobs/(pca._output._nobs-1.0);
+
+      if (gram._diagN == 0) { // no categorical columns
+        for (int i = 0; i < glrm._output._singular_vals.length; i++) {
+          pca._output._std_deviation[i] = dfcorr * glrm._output._singular_vals[i];
+        }
+        // Since gram = X'X/n, but variance requires n-1 in denominator
+        pca._output._total_variance = gram.diagSum() * pca._output._nobs / (pca._output._nobs - 1.0);
+      } else {  // no change to eigen values for categoricals
+        pca._output._std_deviation = glrm._output._std_deviation;
+        pca._output._total_variance = glrm._output._total_variance;
+      }
       buildTables(pca, glrm._output._names_expanded);
     }
 

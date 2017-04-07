@@ -25,10 +25,7 @@ import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 import water.*;
 import water.api.ModelCacheManager;
-import water.fvec.C0DChunk;
-import water.fvec.Chunk;
-import water.fvec.Frame;
-import water.fvec.Vec;
+import water.fvec.*;
 import water.util.*;
 
 import java.util.ArrayList;
@@ -676,6 +673,8 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       Frame xwF = null; // frame to store X, W matrices for wide datasets
       boolean overwriteX = false;
       int colCount = _ncolA;
+						ObjCalc objtsk = null;
+						ObjCalcW objtskw = null;
 
       try {
         init(true);   // Initialize + Validate parameters
@@ -787,9 +786,15 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
         // Assume regularization on initial X is finite, else objective can be NaN if \gamma_x = 0
         boolean regX = _parms._regularization_x != GlrmRegularizer.None && _parms._gamma_x != 0;
 
-        ObjCalc objtsk = new ObjCalc(_parms, yt, colCount, _ncolX, tinfo._cats, model._output._normSub,
-                                     model._output._normMul, model._output._lossFunc, weightId, regX);
-        objtsk.doAll(fr);
+        if (_wideDataset) {
+										objtskw = new ObjCalcW(_parms, yt, colCount, _ncolX, tinfo._cats, model._output._normSub,
+																		model._output._normMul, model._output._lossFunc, weightId, regX, xwF);
+										objtskw.doAll(fr);
+								} else {
+										objtsk = new ObjCalc(_parms, yt, colCount, _ncolX, tinfo._cats, model._output._normSub,
+																		model._output._normMul, model._output._lossFunc, weightId, regX);
+										objtsk.doAll(fr);
+								}
 
         model._output._objective = objtsk._loss + _parms._gamma_x * objtsk._xold_reg + _parms._gamma_y * yreg;
         model._output._archetypes_raw = yt;
@@ -1640,7 +1645,216 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
     }
   }
 
-  // Calculate the sum over the loss function in the optimization objective
+		// Calculate the sum over the loss function in the optimization objective for wideDatasets
+		private static class ObjCalcW extends MRTask<ObjCalcW> {
+				// Input
+				GLRMParameters _parms;
+				GlrmLoss[] _lossFunc;
+				final Archetypes _yt;     // _yt = Y' (transpose of Y)
+				final int _ncolA;         // Number of cols in training frame
+				final int _ncolX;         // Number of cols in X (k)
+				final int _ncats;         // Number of categorical cols in training frame
+				final double[] _normSub;  // For standardizing training data
+				final double[] _normMul;
+				final int _weightId;
+				final boolean _regX;      // Should I calculate regularization of (old) X matrix?
+				Frame _xVecs;        // store X and X new
+
+				// Output
+				double _loss;       // Loss evaluated on A - XY using new X (and current Y)
+				double _xold_reg;   // Regularization evaluated on old X
+
+				ObjCalcW(GLRMParameters parms, Archetypes yt, int ncolA, int ncolX, int ncats, double[] normSub, double[] normMul,
+												GlrmLoss[] lossFunc, int weightId, Frame xVecs) {
+						this(parms, yt, ncolA, ncolX, ncats, normSub, normMul, lossFunc, weightId, false, xVecs);
+				}
+				ObjCalcW(GLRMParameters parms, Archetypes yt, int ncolA, int ncolX, int ncats, double[] normSub, double[] normMul,
+												GlrmLoss[] lossFunc, int weightId, boolean regX, Frame xVecs) {
+						assert yt != null && yt.rank() == ncolX;
+						assert ncats <= ncolA;
+						_parms = parms;
+						_yt = yt;
+						_lossFunc = lossFunc;
+						_ncolA = ncolA;
+						_ncolX = ncolX;
+						_ncats = ncats;
+						_regX = regX;
+						_xVecs = xVecs;
+
+						_weightId = weightId;
+						_normSub = normSub;
+						_normMul = normMul;
+				}
+
+				private Chunk chk_xnew(Chunk[] chks, int c) {
+						return chks[_ncolA + _ncolX + c];
+				}
+
+				@SuppressWarnings("ConstantConditions")  // The method is too complex
+				@Override public void map(Chunk[] cs) {	// cs now is n by m, x is n_exp by k, y is 2-D array of m by k
+
+      Frame xVecs = _xVecs;
+
+      int rowStart = (int)cs[0].start();
+      int rowEnd = (int) cs[0]._len+rowStart-1; // last row index
+      Chunk[] xChunks = new Chunk[_parms._k]; // number of columns
+      int xNChunks = xVecs.anyVec().nChunks();
+      int startxcidx = cs[0].cidx();
+      ArrayList<Integer> xChunkIndices= findXChunkIndices(rowStart, rowEnd, startxcidx);  // contains x chunks to get
+
+      // loop to extract xvec data, for XY and compare with T(A) value
+      for (Integer xChunkIdx: xChunkIndices) {
+        for (int j = 0; j < _parms._k; ++j) {  // read in the relevant xVec chunks
+          xChunks[j] = xVecs.vec(j).chunkForChunkIdx(xChunkIdx);
+        }
+
+        // ready to perform multiplication and do compare
+      }
+      for (int index = 0; index < xNChunks; index++) {
+        xChunks[0] = xVecs.vec(0).chunkForChunkIdx(startxcidx);
+        startxcidx = (startxcidx+1) % xNChunks;   // go to next chunk.
+      }
+      xChunks[0] = xVecs.vec(0).chunkForChunkIdx(cs[0].cidx());
+
+      for (int j = 0; j < _parms._k; ++j)
+        xChunks[j] = xVecs.vec(j).chunkForChunkIdx(cs[0].cidx());
+
+
+						assert (_ncolA + 2 * _ncolX) == cs.length;
+
+						// ToDo: Ask Tomas about how weights are stored for dataset
+						Chunk chkweight = _weightId >= 0 ? cs[_weightId]:new C0DChunk(1,cs[0]._len);  // weight is per data sample
+						_loss = _xold_reg = 0;
+						double[] xrow = null;
+						double[] xy = null;
+
+						if (_yt._numLevels[0] > 0)  // only allocate xy when there are categorical columns
+								xy = new double[_yt._numLevels[0]];    // maximum categorical level column is always the first one
+
+						if (_regX)  // allocation memory only if necessary
+								xrow = new double[_ncolX];
+
+
+						for (int row = 0; row < cs[0]._len; row++) {
+								// Additional user-specified weight on loss for this row
+								double cweight = chkweight.atd(row);  // weight is per row for normal dataset
+								assert !Double.isNaN(cweight) : "User-specified weight cannot be NaN";
+								// Categorical columns
+								for (int j = 0; j < _ncats; j++) {    // contribution from categoricals
+										_loss += lossDueToCategorical(cs, j, row, xy);
+								}
+
+								// Numeric columns
+								for (int j = _ncats; j < _ncolA; j++) {
+										_loss += lossDueToNumeric(cs, j, row, _ncats);
+								}
+								_loss *= cweight;
+
+								// Calculate regularization term for old X if requested
+								if (_regX) {
+										_xold_reg += regularizationTermOldX(cs, row, xrow, _ncolA, _ncolA + _ncolX);
+								}
+						}
+				}
+
+				private ArrayList<Integer> findXChunkIndices(int taStart, int taEnd, int startTAcidx) {
+				  ArrayList<Integer> xcidx = new ArrayList<Integer>();
+      int xNChunks = _xVecs.anyVec().nChunks();
+      Chunk[] xChunks = new Chunk[1];
+      int numCats = _yt._catOffsets.length-1;
+
+      taStart = findExpColIndex(taStart, numCats);  // translate col indices to expanded column index with categoricals
+      taEnd = findExpColIndex(taEnd, numCats);
+
+      // small loop to find intersection of rows from xVec and T(A)
+      for (int index = 0; index < xNChunks; index++) {  // check to make sure start row is there
+        xChunks[0] = _xVecs.vec(0).chunkForChunkIdx(startTAcidx);
+        long xStart = xChunks[0].start();    // start row of xVec Chunks
+
+        if ((xStart >= taStart) && (xStart <= taEnd)) { // found start chunk
+          xcidx.add(startTAcidx);
+          startTAcidx += 1;   // go to next chunk.
+          break;
+        }
+        startTAcidx = (startTAcidx+1) % xNChunks;   // go to next chunk.
+      }
+
+      if (startTAcidx < xNChunks) {
+        // small loop to find intersection of rows from xVec and T(A)
+        for (int index = startTAcidx; index < xNChunks; index++) {  // check to make sure start row is there
+          xChunks[0] = _xVecs.vec(0).chunkForChunkIdx(index);
+          long xEnd = xChunks[0].start() + xChunks[0]._len-1;
+
+          if (xEnd <= taEnd) { // found end chunk
+            xcidx.add(index);
+            break;
+          }
+          xcidx.add(index);
+        }
+      }
+
+				  return xcidx;
+    }
+
+    private int findExpColIndex(int oldIndex, int numCats) {
+				  if (numCats > 0) {
+      if (oldIndex < numCats) {  // find true row start considering categorical columns
+        return _yt._catOffsets[oldIndex];
+      } else {  // taStart in the numerical columns now
+        return oldIndex-numCats+_yt._catOffsets[numCats];
+      }
+				  } else {
+				    return oldIndex;  // all numerics
+      }
+
+    }
+
+				private double regularizationTermOldX(Chunk[] cs, int row, double[] xrow, int colStart, int colEnd) {
+						int idx = 0;
+						for (int j = colStart; j < colEnd; j++) {
+								xrow[idx] = cs[j].atd(row);
+								idx++;
+						}
+						assert idx == colStart;
+						return _parms._regularization_x.regularize(xrow);
+				}
+
+				private double lossDueToNumeric(Chunk[] cs, int j, int row, int offsetA) {
+						double a = cs[j].atd(row);
+						if (Double.isNaN(a)) return 0.0;   // Skip missing observations in row
+
+						// Inner product x_i * y_j
+						double txy = 0;
+						int js = j - offsetA;
+						for (int k = 0; k < _ncolX; k++)
+								txy += chk_xnew(cs, k).atd(row) * _yt.getNum(js, k);
+
+						return _lossFunc[j].loss(txy, (a - _normSub[js]) * _normMul[js]);
+				}
+
+				private double lossDueToCategorical(Chunk[] cs, int colInd, int row, double[] xy) {
+						double a = cs[colInd].atd(row);
+						if (Double.isNaN(a)) return 0.0;
+						int catColJLevel = _yt._numLevels[colInd];
+						Arrays.fill(xy, 0, catColJLevel, 0);  // reset before next accumulation sum
+
+						// Calculate x_i * Y_j where Y_j is sub-matrix corresponding to categorical col j
+						for (int level = 0; level < catColJLevel; level++) {  // level index into extra columns due to categoricals.
+								for (int k = 0; k < _ncolX; k++) {
+										xy[level] += chk_xnew(cs, k).atd(row) * _yt.getCat(colInd, level, k);
+								}
+						}
+						return _lossFunc[colInd].mloss(xy, (int)a, catColJLevel);
+				}
+
+				@Override public void reduce(ObjCalcW other) {
+						_loss += other._loss;
+						_xold_reg += other._xold_reg;
+				}
+		}
+
+
+		// Calculate the sum over the loss function in the optimization objective
   private static class ObjCalc extends MRTask<ObjCalc> {
     // Input
     GLRMParameters _parms;
@@ -1653,8 +1867,6 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
     final double[] _normMul;
     final int _weightId;
     final boolean _regX;      // Should I calculate regularization of (old) X matrix?
-    boolean _wideDataset = false;
-    Frame _xVecs;        // store X and X new
 
     // Output
     double _loss;       // Loss evaluated on A - XY using new X (and current Y)
@@ -1687,13 +1899,10 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
 
     @SuppressWarnings("ConstantConditions")  // The method is too complex
     @Override public void map(Chunk[] cs) {
-      if (!_wideDataset) {
-        assert (_ncolA + 2 * _ncolX) == cs.length;
-      }
+						assert (_ncolA + 2 * _ncolX) == cs.length;
 
       // ToDo: Ask Tomas about how weights are stored for dataset
-      Chunk chkweight = _wideDataset ? new C0DChunk(1,cs.length):
-              (_weightId >= 0 ? cs[_weightId]:new C0DChunk(1,cs[0]._len));  // weight is per data sample
+      Chunk chkweight = _weightId >= 0 ? cs[_weightId]:new C0DChunk(1,cs[0]._len);  // weight is per data sample
       _loss = _xold_reg = 0;
       double[] xrow = null;
       double[] xy = null;

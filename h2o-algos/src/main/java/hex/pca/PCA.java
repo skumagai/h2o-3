@@ -59,10 +59,11 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
     double r = _train.numRows();
     boolean useGramSVD = _parms._pca_method == PCAParameters.Method.GramSVD;
     boolean usePower = _parms._pca_method == PCAParameters.Method.Power;
+    boolean useGLRM = _parms._pca_method == PCAParameters.Method.GLRM;
 
-    long mem_usage = (useGramSVD || usePower) ? (long) (hb._cpus_allowed * p * p * 8/*doubles*/ *
+    long mem_usage = (useGramSVD || usePower || useGLRM) ? (long) (hb._cpus_allowed * p * p * 8/*doubles*/ *
             Math.log((double) _train.lastVec().nChunks()) / Math.log(2.)) : 1; //one gram per core
-    long mem_usage_w = (useGramSVD || usePower) ? (long) (hb._cpus_allowed * r * r *
+    long mem_usage_w = (useGramSVD || usePower || useGLRM) ? (long) (hb._cpus_allowed * r * r *
             8/*doubles*/ * Math.log((double) _train.lastVec().nChunks()) / Math.log(2.)) : 1;
     long max_mem = hb.get_free_mem();
 

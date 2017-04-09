@@ -145,9 +145,9 @@ final public class ExternalFrameWriterClient {
      *
      * It has to be called at the end of writing.
      * @param timeout timeout in seconds
-     * @throws FailedWriteConfirmException
+     * @throws ExternalFrameConfirmationException
      */
-    public void waitUntilAllWritten(int timeout) throws FailedWriteConfirmException {
+    public void waitUntilAllWritten(int timeout) throws ExternalFrameConfirmationException {
         try {
             final AutoBuffer confirmAb = new AutoBuffer(channel, null);
             // this needs to be here because confirmAb.getInt() forces this code to wait for result and
@@ -166,22 +166,16 @@ final public class ExternalFrameWriterClient {
                 assert (result == ExternalFrameHandler.CONFIRM_WRITING_DONE);
 
             } catch (TimeoutException ex) {
-                throw new FailedWriteConfirmException("Timeout for confirmation exceeded!");
+                throw new ExternalFrameConfirmationException("Timeout for confirmation exceeded!");
             } catch (InterruptedException e) {
-                throw new FailedWriteConfirmException("Confirmation thread interrupted!");
+                throw new ExternalFrameConfirmationException("Confirmation thread interrupted!");
             } catch (ExecutionException e) {
-                throw new FailedWriteConfirmException("Confirmation failed!");
+                throw new ExternalFrameConfirmationException("Confirmation failed!");
             } finally {
                 future.cancel(true); // may or may not desire this
             }
         } catch (IOException e) {
-            throw new FailedWriteConfirmException("Confirmation Failed");
-        }
-    }
-
-    public static class FailedWriteConfirmException extends Exception{
-        public FailedWriteConfirmException(String message) {
-            super(message);
+            throw new ExternalFrameConfirmationException("Confirmation Failed");
         }
     }
 

@@ -10,11 +10,9 @@ import static water.ExternalFrameUtils.writeToChannel;
 /**
  * <p>This class is used to read data from H2O Frames from non-H2O environments, such as Spark Executors.
  * It is expected that the frame we want to read is already in the DKV. The check for the presence is up on the
- * user of this class.<p>
+ * user of this class.</p>
  * <p>
  * <strong>Example usage of this class:</strong></br>
- * <p>
- * <p>
  * First we need to open the connection to H2O and initialize the reader:</br>
  * <pre>
  * {@code
@@ -27,7 +25,6 @@ import static water.ExternalFrameUtils.writeToChannel;
  * }
  * </pre>
  * </p>
- * <p>
  * <p>
  * In the next step we can read the data we expect, in our case boolean and integer:</br>
  * <pre>
@@ -51,7 +48,6 @@ import static water.ExternalFrameUtils.writeToChannel;
  * }
  * </pre>
  * </p>
- * <p>
  * <p>
  * And at the end we need to make sure to force to code wait for all data to be read:</br>
  * <pre>
@@ -162,7 +158,7 @@ final public class ExternalFrameReaderClient {
     /**
      * This method ensures the application waits for all bytes to be received before continuing in the
      * application's control flow.
-     * <p>
+     *
      * It has to be called at the end of reading.
      * @param timeout timeout in seconds
      * @throws ExternalFrameConfirmationException

@@ -1695,18 +1695,21 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
 
       Frame xVecs = _xVecs;
 
-      int rowStart = (int)cs[0].start();
+      int rowStart = (int) cs[0].start();
       int rowEnd = (int) cs[0]._len+rowStart-1; // last row index
       Chunk[] xChunks = new Chunk[_parms._k]; // number of columns
       int xNChunks = xVecs.anyVec().nChunks();
       int startxcidx = cs[0].cidx();
       ArrayList<Integer> xChunkIndices= findXChunkIndices(rowStart, rowEnd, startxcidx);  // contains x chunks to get
 
-      // loop to extract xvec data, for XY and compare with T(A) value
+      // loop to extract xvec data, form XY and compare with T(A) value
       for (Integer xChunkIdx: xChunkIndices) {
         for (int j = 0; j < _parms._k; ++j) {  // read in the relevant xVec chunks
           xChunks[j] = xVecs.vec(j).chunkForChunkIdx(xChunkIdx);
         }
+        int xChunkRow = (int) xChunks[0].start();
+        int xChunkRowEnd = (int) xChunks[0]._len+xChunkRow-1;
+        // loop through each T(A)?  or
 
         // ready to perform multiplication and do compare
       }

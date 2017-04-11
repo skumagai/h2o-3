@@ -1701,19 +1701,49 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       int xNChunks = xVecs.anyVec().nChunks();
       int startxcidx = cs[0].cidx();
       ArrayList<Integer> xChunkIndices= findXChunkIndices(rowStart, rowEnd, startxcidx);  // contains x chunks to get
+      double[] xy = null;   // store the vector of categoricals for one column
+
+      if (_yt._numLevels[0] > 0) {
+        xy = new double[_yt._numLevels[0]];   // allocate memory only if there are categoricals
+      }
 
       // loop to extract xvec data, form XY and compare with T(A) value
-      for (Integer xChunkIdx: xChunkIndices) {
-        for (int j = 0; j < _parms._k; ++j) {  // read in the relevant xVec chunks
-          xChunks[j] = xVecs.vec(j).chunkForChunkIdx(xChunkIdx);
-        }
+      while (xChunkIndices.size() > 0) {
+        int xChunkIdx = xChunkIndices.remove(0);
+        getXChunk(xVecs, xChunkIdx, xChunks); // get a xVec chunk
+
         int xChunkRow = (int) xChunks[0].start();
         int xChunkRowEnd = (int) xChunks[0]._len+xChunkRow-1;
+
+        for (int rowIndex = 0; rowIndex <= rowEnd; rowIndex++) {  // use indexing of T(A)
+          if (rowIndex < _ncats)  {
+            if (_yt._catOffsets[rowIndex] < xChunkRow)
+              continue;   // do nothing, at an offset
+            else {    // perform comparison for categoricals
+              int catColJLevel = _yt._numLevels[rowIndex];
+
+              for (int colIndex = 0; colIndex < cs.length; colIndex++) {
+                double a = cs[rowIndex].atd(colIndex);    // grab an element of T(A)
+                if (Double.isNaN(a)) continue;
+                Arrays.fill(xy, 0, catColJLevel,0);   // reset before next accumulated sum
+
+
+
+              }
+            }
+          } else {
+            if (_yt._catOffsets[_ncats]+rowIndex < xChunkRow) {
+              continue;
+            } else {    // perform comparison for numericals
+
+            }
+          }
+        }
         // loop through each T(A)?  or
 
         // ready to perform multiplication and do compare
       }
-      for (int index = 0; index < xNChunks; index++) {
+      for (int index = rowStart; index < xNChunks; index++) {
         xChunks[0] = xVecs.vec(0).chunkForChunkIdx(startxcidx);
         startxcidx = (startxcidx+1) % xNChunks;   // go to next chunk.
       }
@@ -1759,6 +1789,12 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
 								}
 						}
 				}
+
+				private void getXChunk(Frame xVecs, int chunkIdx, Chunk[] xChunks) {
+      for (int j = 0; j < _parms._k; ++j) {  // read in the relevant xVec chunks
+        xChunks[j] = xVecs.vec(j).chunkForChunkIdx(chunkIdx);
+      }
+    }
 
 				private ArrayList<Integer> findXChunkIndices(int taStart, int taEnd, int startTAcidx) {
 				  ArrayList<Integer> xcidx = new ArrayList<Integer>();
